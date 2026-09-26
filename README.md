@@ -1,5 +1,10 @@
 # Agenclave
 
+[![ci](https://github.com/daveck11/BlackBox-Agenclave/actions/workflows/ci.yml/badge.svg)](https://github.com/daveck11/BlackBox-Agenclave/actions/workflows/ci.yml)
+
+**Live demo:** <https://agenclave.onrender.com> (free instance: the first load can take
+~30 s while it wakes). **Walkthrough:** [Loom video](https://www.loom.com/share/38124557b68b4372ac44e7d3d5875210).
+
 > A **verification-backed trust layer for multi-agent coding**. As agents outpace
 > human review, the bottleneck stops being generating code and becomes trusting it.
 > Agenclave answers one question with evidence: **which of N agent outputs do I
@@ -53,8 +58,11 @@ Providers are pluggable behind one `Agent` interface
   what passes. A historically weak model can still win a specific task on the merits,
   and the prior never becomes a self-fulfilling prophecy.
 - **No leakage.** Per-model reliability is fed **only** by in-loop verification and is
-  kept strictly separate from any held-out grader. The web path (no repo checkout)
-  judges with the Chairman LLM and deliberately writes **no** reliability signal.
+  kept strictly separate from any held-out grader. Two paths write it, and both run
+  the task's own tests: `scripts/verified_run.py`, and a web run on one of the
+  practice-bug fixtures (each candidate is applied in a sandbox and tested before the
+  Chairman speaks). A free-text web run has no repo checkout, so it is judged by the
+  Chairman alone and writes **nothing** to the store.
 
 ## The app
 
@@ -62,8 +70,10 @@ Providers are pluggable behind one `Agent` interface
   next steps. Bugs surface a one-click **"Send to the code-fix agents →"**.
 - **Code-fix** - the issue is routed to the trusted subset and dispatched (dry run by
   default; live spends credits). The routing decision, candidate patches, and the
-  Chairman's pick are shown. Logged-in users can **save** a run (nothing auto-saves)
-  and delete it later.
+  Chairman's pick are shown. A live run needs a logged-in user and all users share one
+  cap per UTC day (`AGENCLAVE_LIVE_DAILY_CAP`, default 20, counted in the database);
+  dry runs stay anonymous and free. Logged-in users can **save** a run (nothing
+  auto-saves) and delete it later.
 - **Accounts + Workspace** - register/log in (bcrypt + JWT); save issues and runs and
   revisit them per-user. The anonymous demo works without an account.
 - **Distributable** - `make app` builds the React app and serves the whole product
@@ -88,7 +98,8 @@ make trust     # verified best-of-N -> per-model reliability (dry run by default
 Accounts/persistence need no setup - SQLite is created on first start
 (`data/agenclave.db`). Set a real `SECRET_KEY` in `.env` for anything beyond local
 use. Live runs need a provider key (`BLACKBOX_API_KEY`, or `ANTHROPIC_API_KEY` /
-`OPENAI_API_KEY`) in `.env`.
+`OPENAI_API_KEY`) in `.env`, a logged-in user, and room under the daily cap
+(`AGENCLAVE_LIVE_DAILY_CAP`, default 20). Deploy notes: [`DEPLOY.md`](DEPLOY.md).
 
 Windows without `make`: run the one-line equivalent per target (see the `Makefile`).
 
@@ -107,14 +118,25 @@ Windows without `make`: run the one-line equivalent per target (see the `Makefil
 > so we serve it (torch-free + interpretable top tokens). Per-class metrics +
 > confusion matrix: [`results/`](results/) and the [model card](models/MODEL_CARD.md).
 
-### Trust-scored routing
+### Trust-scored routing (small-n, labelled as such)
 Per-model reliability is learned in-loop by the verified harness (`make trust`,
-`scripts/verified_run.py`) and stored in `results/model_reliability.json`. It is
-small-`n` by design and moves as more verified runs accumulate - the point is the
-*mechanism* (verify → tier → rank → route), not a headline score. Reliability is never
-seeded from any held-out grade (see "No leakage" above). Offline demos with no network
-or API keys: `scripts/demo_router.py` (Thompson routing) and `scripts/demo_trust.py`
-(verification-backed ranking).
+`scripts/verified_run.py`, and web runs on the practice-bug fixtures) and stored in
+`results/model_reliability.json`. The current store, on the open-source fleet routed
+through BlackBox (bug fixtures only):
+
+| Model (via BlackBox)                 | Verified pass rate (bug fixtures) |
+| ------------------------------------ | --------------------------------- |
+| `moonshotai/kimi-k2.7-code`          | 17 / 17                           |
+| `deepseek/deepseek-v4-pro`           | 15 / 16                           |
+| `nvidia/nemotron-3-nano-30b-a3b`     | 14 / 15                           |
+| `mistral/devstral-2`                 | 2 / 5                             |
+
+These counts are **small-`n`** by design and move as more verified runs accumulate -
+the point is the *mechanism* (verify → tier → rank → route), not a headline score.
+The router draws from `Beta(passed+1, failed+1)` rather than crowning a leader off a
+handful of points. Reliability is never seeded from any held-out grade (see "No
+leakage" above). Offline demos with no network or API keys: `scripts/demo_router.py`
+(Thompson routing) and `scripts/demo_trust.py` (verification-backed ranking).
 
 ## Datasets
 
@@ -139,8 +161,9 @@ scripts/        prepare_data | train_classifier | evaluate_classifier | verified
 frontend/src/   React SPA: pages/ (Triage, CodeFix, Workspace, Login, Register),
                 components/, auth + issue contexts, api.js
 tests/          pytest (features, API contract, auth, recommend, issues/runs,
-                harness, reliability)
+                live-run gate, harness, reliability); fixtures/ = 10 practice bugs
 results/        metrics JSON + plots + the per-model reliability store
+.github/        CI: pytest on every push and PR (torch-free install)
 ```
 
 > The project began as a reproduction of the "Chairman LLM" pattern benchmarked on
@@ -148,4 +171,4 @@ results/        metrics JSON + plots + the per-model reliability store
 > [`OLD_BUILD.md`](OLD_BUILD.md).
 
 ## Author
-David Nkpa, built as a portfolio project. License: MIT (code).
+David Nkpa, built as a portfolio project. License: [MIT](LICENSE) (code).

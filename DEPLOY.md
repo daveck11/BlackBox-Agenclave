@@ -39,6 +39,9 @@ Railway and Fly.io work the same way (both detect the `Dockerfile`; Fly: `fly la
   routing runs only when a key is set (locally or on a private instance).
 - Want to demo a *live* run for Roger? Do it locally or on a private instance with keys
   set - not on the public URL.
+- If a key *is* set for a demo, two guards still apply: a live run needs a logged-in
+  user, and all users share one cap of `AGENCLAVE_LIVE_DAILY_CAP` live runs per UTC day
+  (default 20), counted in the database. Dry runs stay anonymous and free.
 
 ## Good to know
 
