@@ -49,3 +49,14 @@ Thumbs.db
 # Agent harness / personal files (not part of the project)
 .claude/
 DAVIDNKPA_CV2.pdf
+AGENTS.md
+
+# Pitch material and local-only artifacts: kept on disk, not in the public repo
+docs/AGENCLAVE_PITCH*.md
+docs/BLACKBOX_FACTCHECK.md
+docs/COWORK_PROMPT.md
+docs/PITCH_CONTEXT.md
+docs/PITCH_PLAN.md
+docs/WALKTHROUGH_SCRIPT.md
+docs/blackbox file that i self edited and i am currently working on.pdf
+trustscoredrouting.bundle
