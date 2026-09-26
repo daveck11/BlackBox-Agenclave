@@ -7,12 +7,20 @@
 # is shown read-only via /runs/latest.
 #
 # To give a LIVE Blackbox demo (e.g. for a pitch), add these in the Render dashboard
-# and redeploy - then remove them afterwards so the URL can't spend your credits:
+# and redeploy - then remove them afterwards so the URL can't spend your credits.
+# The fleet is the four open-source models the reliability store was learned on
+# (results/model_reliability.json), with a GLM-5.2 judge; confirm the ids against
+# your account's GET /models:
 #   AGENCLAVE_PROVIDER=blackbox
 #   BLACKBOX_API_KEY=sk-...
 #   AGENCLAVE_BLACKBOX_API_BASE=https://api.blackbox.ai/v1
-#   AGENCLAVE_AGENT_MODELS=blackboxai/anthropic/claude-sonnet-4.6,blackboxai/openai/gpt-5.4,blackboxai/google/gemini-3.1-flash-lite,blackboxai/deepseek/deepseek-v4-pro
-#   AGENCLAVE_CHAIRMAN_MODEL=blackboxai/anthropic/claude-opus-4.7
+#   AGENCLAVE_AGENT_MODELS=blackboxai/deepseek/deepseek-v4-pro,blackboxai/nvidia/nemotron-3-nano-30b-a3b,blackboxai/mistral/devstral-2,blackboxai/moonshotai/kimi-k2.7-code
+#   AGENCLAVE_CHAIRMAN_MODEL=blackboxai/z-ai/glm-5.2
+#
+# Even with a key set, a live run needs a logged-in user and all users share one
+# cap of AGENCLAVE_LIVE_DAILY_CAP live runs per UTC day (default 20). The cap is
+# counted in the database, so point DATABASE_URL at Postgres (e.g. Neon) if the
+# count - and the accounts - should survive a restart of the free instance.
 services:
   - type: web
     name: agenclave
