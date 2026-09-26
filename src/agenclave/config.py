@@ -35,6 +35,10 @@ class Settings(BaseSettings):
     # category (Thompson sampling over per-model reliability). route() returns
     # min(route_k, len(panel)), so a small panel is used whole.
     route_k: int = 3
+    # A live run spends provider credits, so it needs a logged-in user, and since
+    # registration is open the cap is global: this many live runs per UTC day across
+    # all users, counted in the database (AGENCLAVE_LIVE_DAILY_CAP).
+    live_daily_cap: int = 20
 
     # --- Keys (Stage 2 only; read from the conventional names, prefix optional) ---
     anthropic_api_key: str | None = Field(

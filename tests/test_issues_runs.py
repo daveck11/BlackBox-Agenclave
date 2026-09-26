@@ -186,8 +186,8 @@ def test_dry_run_shows_routing_projection_without_spending(client, monkeypatch):
 
 
 def test_web_run_never_writes_reliability(client, monkeypatch):
-    # Guardrail: the web path has no in-loop verification, so it must never record
-    # outcomes into reliability. If it tried, this raising stub would surface it.
+    # Guardrail: a free-text web run has no in-loop verification, so it must never
+    # record outcomes into reliability. If it tried, this raising stub would surface it.
     _patch_stage2(monkeypatch)
     from agenclave.harness import reliability as rel_mod
 
@@ -195,9 +195,107 @@ def test_web_run_never_writes_reliability(client, monkeypatch):
         raise AssertionError("web run must not write reliability (read-only prior)")
 
     monkeypatch.setattr(rel_mod, "record_outcome", _boom)
-    resp = client.post("/runs", json={"title": "Crash", "body": "boom", "live": True})
+    alice = _auth(client, "alice@example.com")
+    resp = client.post(
+        "/runs", json={"title": "Crash", "body": "boom", "live": True}, headers=alice
+    )
     assert resp.status_code == 200
     assert resp.json()["ran_live"] is True
+
+
+# --- live-run gate: login + one global cap per UTC day -------------------------
+_LIVE = {"title": "Crash", "body": "boom", "live": True}
+
+
+def test_anonymous_live_run_is_unauthorized(client, monkeypatch):
+    # live=True spends credits, so it needs a logged-in user: 401 without a token.
+    # Nothing is dispatched, and a dry run from the same anonymous caller still works.
+    _patch_stage2(monkeypatch)
+    resp = client.post("/runs", json=_LIVE)
+    assert resp.status_code == 401
+    assert resp.headers.get("www-authenticate") == "Bearer"
+    dry = client.post("/runs", json={**_LIVE, "live": False})
+    assert dry.status_code == 200 and dry.json()["ran_live"] is False
+
+
+def test_bearer_token_as_sent_by_the_ui_passes_the_live_gate(client, monkeypatch):
+    # frontend/src/api.js attaches `Authorization: Bearer <token>` by default whenever
+    # a token is stored, so the UI needs no change for the gate. Pin that contract
+    # and check the exact header shape it sends is what the gate accepts.
+    _patch_stage2(monkeypatch)
+    api_js = (ROOT / "frontend" / "src" / "api.js").read_text(encoding="utf-8")
+    assert "headers['Authorization'] = `Bearer ${token}`" in api_js
+    assert "const wantAuth = auth === undefined ? Boolean(token) : auth" in api_js
+
+    reg = client.post(
+        "/auth/register", json={"email": "alice@example.com", "password": "supersecret1"}
+    )
+    headers = {"Authorization": f"Bearer {reg.json()['access_token']}"}
+    resp = client.post("/runs", json=_LIVE, headers=headers)
+    assert resp.status_code == 200
+    assert resp.json()["ran_live"] is True
+
+
+def test_live_cap_is_global_and_returns_429(client, monkeypatch):
+    # The cap is shared by every user (registration is open). Over it, a live run
+    # is 429 for anyone, while dry runs stay anonymous and free.
+    _patch_stage2(monkeypatch)
+    from agenclave.config import settings
+
+    monkeypatch.setattr(settings, "live_daily_cap", 2)
+    alice = _auth(client, "alice@example.com")
+    bob = _auth(client, "bob@example.com")
+
+    assert client.post("/runs", json=_LIVE, headers=alice).status_code == 200
+    assert client.post("/runs", json=_LIVE, headers=bob).status_code == 200
+
+    over = client.post("/runs", json=_LIVE, headers=alice)
+    assert over.status_code == 429
+    assert "cap" in over.json()["detail"]
+    assert client.post("/runs", json=_LIVE, headers=bob).status_code == 429
+
+    dry = client.post("/runs", json={**_LIVE, "live": False})
+    assert dry.status_code == 200 and dry.json()["cost"]["spent_usd"] == 0.0
+
+
+def test_live_cap_is_counted_in_the_database(client, monkeypatch):
+    # The count is a row per live dispatch in `live_runs`, keyed by UTC day, so it
+    # survives a restart. Only runs that actually dispatch count: a live request
+    # that fails the triage gate, and a dry run, add no row.
+    _patch_stage2(monkeypatch)
+    from sqlalchemy import func, select
+
+    from agenclave.api import db
+    from agenclave.api.models import LiveRun
+    from agenclave.api.routes import runs as runs_mod
+
+    alice = _auth(client, "alice@example.com")
+    for _ in range(2):
+        assert client.post("/runs", json=_LIVE, headers=alice).status_code == 200
+    assert client.post("/runs", json={**_LIVE, "live": False}, headers=alice).status_code == 200
+
+    monkeypatch.setattr(
+        runs_mod,
+        "predict_triage",
+        lambda title, body="": {
+            "label": "documentation",
+            "label_confidence": 0.8,
+            "severity": None,
+            "top_tokens": ["docs"],
+        },
+    )
+    gated = client.post("/runs", json=_LIVE, headers=alice)
+    assert gated.status_code == 200
+    assert gated.json()["gate"]["passed"] is False and gated.json()["ran_live"] is False
+
+    async def _rows():
+        async with db.async_session_factory() as s:
+            q = select(LiveRun.day, func.count(LiveRun.id)).group_by(LiveRun.day)
+            return (await s.execute(q)).all()
+
+    # Run the query on the app's own event loop (same in-memory connection).
+    rows = client.portal.call(_rows)
+    assert rows == [(runs_mod._utc_day(), 2)]
 
 
 def test_run_owner_isolation(client, monkeypatch):

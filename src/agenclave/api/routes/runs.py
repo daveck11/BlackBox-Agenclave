@@ -1,8 +1,9 @@
 # Pipeline + run persistence routes.
 #
 # `POST /runs` is the full pipeline: triage as the gate, then trust-scored routing
-# and (when `live` is set) best-of-N dispatch + the Chairman judge. It works
-# anonymously (dry run by default) and never auto-saves. Authenticated users keep a
+# and (when `live` is set) best-of-N dispatch + the Chairman judge. A dry run works
+# anonymously; a live run spends credits, so it needs a logged-in user and counts
+# toward one global cap per UTC day. Nothing auto-saves. Authenticated users keep a
 # run with `POST /runs/save`; `GET /runs` / `GET /runs/{id}` / `DELETE /runs/{id}`
 # manage a user's own saved runs.
 
@@ -10,9 +11,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...classifier.predict import ModelsNotTrained, predict_triage
@@ -24,7 +26,7 @@ from ...harness.trust import trust_rank
 from ...harness.verify import verify_patch
 from ..auth import get_current_user, get_optional_user
 from ..db import get_session
-from ..models import Run, User
+from ..models import LiveRun, Run, User
 from ..schemas import RunOut, RunRequest, RunSaveRequest
 
 logger = logging.getLogger("agenclave.api")
@@ -54,6 +56,18 @@ def _cost_per_call(model: str) -> float:
     return (_EST_INPUT_TOKENS * pin + _EST_OUTPUT_TOKENS * pout) / 1_000_000
 
 
+def _utc_day() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+
+async def live_runs_today(session: AsyncSession) -> int:
+    # Live dispatches so far today (UTC), across every user.
+    result = await session.execute(
+        select(func.count(LiveRun.id)).where(LiveRun.day == _utc_day())
+    )
+    return int(result.scalar_one())
+
+
 @router.post("/runs")
 async def run_pipeline(
     req: RunRequest,
@@ -63,6 +77,16 @@ async def run_pipeline(
     # Full pipeline: triage the issue, gate on the label (only a bug goes
     # further), then if `live` is set dispatch to the routed agents and let
     # the Chairman judge. Without `live` it stops before any API call.
+    #
+    # A live run spends provider credits, so it needs a logged-in user. Dry runs
+    # stay anonymous and free.
+    if req.live and user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="log in to run the agents live (a dry run needs no account)",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
     try:
         tri = predict_triage(req.title, req.body)
     except ModelsNotTrained as exc:
@@ -131,6 +155,21 @@ async def run_pipeline(
     }
 
     if passed and req.live:
+        # Registration is open, so the cap is global: one count per UTC day, kept
+        # in the database (not in memory - the free instance restarts). The row is
+        # written before dispatch so a failed provider call still counts.
+        cap = settings.live_daily_cap
+        if await live_runs_today(session) >= cap:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=(
+                    f"daily live-run cap reached ({cap} per day, UTC). "
+                    "Try again tomorrow, or run a dry run."
+                ),
+            )
+        session.add(LiveRun(user_id=user.id, day=_utc_day()))
+        await session.commit()
+
         statement = f"{req.title}\n\n{req.body}".strip()
         task = Task(
             instance_id=fixture.id if fixture else "web-run",

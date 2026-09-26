@@ -1,8 +1,9 @@
 # ORM models (SQLAlchemy 2.0 typed mappings) for accounts + persistence.
 #
-# - User   -> an account (email + bcrypt hash).
-# - Issue  -> a saved, triaged issue (snapshots the Stage 1 prediction).
-# - Run    -> a pipeline run (gate result + full Stage 2 result JSON).
+# - User    -> an account (email + bcrypt hash).
+# - Issue   -> a saved, triaged issue (snapshots the Stage 1 prediction).
+# - Run     -> a pipeline run (gate result + full Stage 2 result JSON).
+# - LiveRun -> one row per live dispatch, for the global per-day cap.
 #
 # JSON columns use `sqlalchemy.JSON`; timestamps default to tz-aware UTC via a
 # lambda (avoids the `datetime.utcnow` deprecation).
@@ -70,3 +71,17 @@ class Run(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
     user: Mapped["User"] = relationship(back_populates="runs")
+
+
+class LiveRun(Base):
+    # A live dispatch that counted toward the daily cap. The count is kept here
+    # rather than in memory because the free instance restarts. `day` is the UTC
+    # date as "YYYY-MM-DD", so the per-day count is a plain equality on any backend.
+    __tablename__ = "live_runs"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    day: Mapped[str] = mapped_column(String(10), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)

@@ -115,6 +115,10 @@ def test_fixture_run_feeds_the_file_and_verifies(client, monkeypatch):
         lambda model, category, passed, **k: recorded.append((model, category, passed)),
     )
 
+    # A live run needs a logged-in user (it spends credits when not faked).
+    reg = client.post(
+        "/auth/register", json={"email": "alice@example.com", "password": "supersecret1"}
+    )
     resp = client.post(
         "/runs",
         json={
@@ -123,6 +127,7 @@ def test_fixture_run_feeds_the_file_and_verifies(client, monkeypatch):
             "live": True,
             "fixture_id": "calc-add",
         },
+        headers={"Authorization": f"Bearer {reg.json()['access_token']}"},
     )
     assert resp.status_code == 200
     out = resp.json()
