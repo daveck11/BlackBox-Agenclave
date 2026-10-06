@@ -38,6 +38,9 @@ async def _run_task(f: Fixture, agents, live: bool, log: list) -> None:
         repo=str(f.repo),
         problem_statement=f.body,
         triage_label=f.category,
+        # show the agents the file, same as the web path; without it they guess
+        # the code and a formatting miss gets recorded as a failed fix
+        files={f.module: f.buggy_code()},
     )
     print(f"\n=== {f.id} (category={f.category}) ===")
     if not live:
