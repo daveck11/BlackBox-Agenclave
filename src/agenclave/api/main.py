@@ -16,7 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from ..config import ROOT
+from ..config import ROOT, settings
 from .db import init_db
 from .routes import auth, fixtures, issues, runs, triage
 
@@ -35,6 +35,10 @@ ALLOWED_ORIGINS = [
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    if settings.secret_key == "dev-insecure-change-me-in-prod":
+        # anyone can mint a JWT with the default, and a forged token passes the
+        # live-run gate; Render's blueprint generates one, other hosts won't
+        logger.warning("SECRET_KEY is the dev default; set a real one before exposing this")
     # Create the database schema before serving requests.
     await init_db()
     # Warm the classifier in a background thread so the first request is not slow,
