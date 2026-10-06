@@ -3,14 +3,14 @@ import { NavLink } from 'react-router-dom'
 const LINKS = [
   { to: '/', label: 'Triage', end: true },
   { to: '/code-fix', label: 'Code-fix' },
-  { to: '/workspace', label: 'Workspace' },
+  { to: '/workspace', label: 'Workspace', authOnly: true },
   { to: '/about', label: 'About' },
 ]
 
-export default function Nav() {
+export default function Nav({ user }) {
   return (
     <nav className="nav">
-      {LINKS.map((l) => (
+      {LINKS.filter((l) => !l.authOnly || user).map((l) => (
         <NavLink
           key={l.to}
           to={l.to}

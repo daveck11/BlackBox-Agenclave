@@ -60,28 +60,19 @@ export default function App() {
               <AuthMenu />
             </div>
           </div>
-          <p className="tagline">Issue triage and best-of-N agent code fixes.</p>
-          {user && <Nav />}
+          <p className="tagline">
+            Send a bug to several coding models, test every patch, keep the one that passes.
+          </p>
+          <Nav user={user} />
         </header>
 
         <main className="card">
           <Routes>
-            <Route
-              path="/"
-              element={
-                <ProtectedRoute>
-                  <TriagePage />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/code-fix"
-              element={
-                <ProtectedRoute>
-                  <CodeFixPage />
-                </ProtectedRoute>
-              }
-            />
+            {/* Triage, dry-run code-fix and About need no account; the API serves
+                them anonymously. Only the Workspace (saved issues and runs) and a
+                live run need a login. */}
+            <Route path="/" element={<TriagePage />} />
+            <Route path="/code-fix" element={<CodeFixPage />} />
             <Route
               path="/workspace"
               element={
@@ -90,14 +81,7 @@ export default function App() {
                 </ProtectedRoute>
               }
             />
-            <Route
-              path="/about"
-              element={
-                <ProtectedRoute>
-                  <AboutPage />
-                </ProtectedRoute>
-              }
-            />
+            <Route path="/about" element={<AboutPage />} />
             <Route path="/login" element={<LoginPage />} />
             <Route path="/register" element={<RegisterPage />} />
             <Route

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { get, post } from '../api'
 import { useAuth } from '../auth/AuthContext'
 import { useIssue } from '../context/IssueContext'
@@ -168,7 +169,11 @@ export default function CodeFixPage() {
       />
 
       <div className="run-bar">
-        {liveEnabled ? (
+        {liveEnabled && !user ? (
+          <span className="switch-text muted">
+            Dry run, no API calls. <Link to="/login">Log in</Link> to run the agents live.
+          </span>
+        ) : liveEnabled ? (
           <label className={`switch${live ? ' on' : ''}`}>
             <input
               type="checkbox"
