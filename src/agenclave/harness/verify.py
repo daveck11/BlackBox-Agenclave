@@ -67,6 +67,16 @@ def _targets(patch: str) -> list[str]:
     return paths
 
 
+def _inside(sandbox: Path, rel: str) -> Path | None:
+    # the target name comes from the model; git apply rejects "../" but the two
+    # direct writes below don't, so check here
+    try:
+        f = (sandbox / rel).resolve()
+    except OSError:
+        return None
+    return f if f.is_relative_to(sandbox.resolve()) else None
+
+
 def _apply(patch: str, sandbox: Path) -> tuple[bool, str]:
     # git apply is atomic (a failed apply leaves the tree untouched), which is
     # what makes retrying with looser flags safe. Line endings on the patch and
@@ -75,8 +85,8 @@ def _apply(patch: str, sandbox: Path) -> tuple[bool, str]:
     # matching breaks against LF files. That one cost me an afternoon.
     patch = _norm_lf(patch)
     for rel in _targets(patch):
-        f = sandbox / rel
-        if f.is_file():
+        f = _inside(sandbox, rel)
+        if f is not None and f.is_file():
             try:
                 f.write_bytes(_norm_lf(f.read_text(encoding="utf-8")).encode("utf-8"))
             except (UnicodeDecodeError, OSError):
@@ -127,8 +137,8 @@ def _fuzzy_apply(patch: str, sandbox: Path) -> bool:
                 break
     if len(targets) != 1:
         return False
-    f = sandbox / targets[0]
-    if not f.is_file():
+    f = _inside(sandbox, targets[0])
+    if f is None or not f.is_file():
         return False
     try:
         content = _norm_lf(f.read_text(encoding="utf-8")).split("\n")

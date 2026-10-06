@@ -36,6 +36,19 @@ def test_health_ok_shape():
     assert body["models_loaded"] is MODELS_EXIST
 
 
+def test_spa_route_stays_inside_dist():
+    import pytest
+
+    if not (ROOT / "frontend" / "dist" / "index.html").exists():
+        pytest.skip("frontend not built; the catch-all is not mounted")
+    # used to serve pyproject.toml (and data/agenclave.db) via ..%2F
+    for path in ("/..%2F..%2Fpyproject.toml", "/../../pyproject.toml"):
+        resp = client.get(path)
+        assert resp.status_code == 200
+        assert b"<!doctype html>" in resp.content.lower()
+        assert b"[build-system]" not in resp.content
+
+
 # --- /triage validation (422) -------------------------------------------------
 def test_triage_rejects_empty_title_and_body():
     resp = client.post("/triage", json={"title": "   ", "body": ""})

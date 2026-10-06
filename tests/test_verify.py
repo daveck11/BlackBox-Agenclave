@@ -61,6 +61,27 @@ def test_malformed_hunk_header_still_applies_by_content():
     assert r.tests_passed
 
 
+def test_target_outside_sandbox_is_refused(tmp_path):
+    # git apply already refuses "../"; the content-match fallback has to as well
+    outside = tmp_path / "victim.py"
+    outside.write_text("def add(a, b):\n    return a - b\n", encoding="utf-8")
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "calc.py").write_text("def add(a, b):\n    return a - b\n", encoding="utf-8")
+    patch = (
+        "diff --git a/../victim.py b/../victim.py\n"
+        "--- a/../victim.py\n"
+        "+++ b/../victim.py\n"
+        "@@\n"
+        " def add(a, b):\n"
+        "-    return a - b\n"
+        "+    return a + b\n"
+    )
+    r = verify_patch(patch, repo, [sys.executable, "-c", "pass"])
+    assert not r.applies
+    assert outside.read_text(encoding="utf-8") == "def add(a, b):\n    return a - b\n"
+
+
 def test_content_fallback_does_not_rescue_a_wrong_fix():
     # A malformed-header patch whose content does not match the file must NOT be
     # force-applied (no false positives from the fallback).

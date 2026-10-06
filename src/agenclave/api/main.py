@@ -89,10 +89,14 @@ def _mount_frontend(app: FastAPI) -> None:
     if assets.is_dir():
         app.mount("/assets", StaticFiles(directory=assets), name="assets")
 
+    dist_root = FRONTEND_DIST.resolve()
+
     @app.get("/{full_path:path}", include_in_schema=False)
     async def spa(full_path: str) -> FileResponse:
-        candidate = FRONTEND_DIST / full_path
-        if full_path and candidate.is_file():
+        # stay inside dist/: uvicorn decodes %2F, so ..%2F..%2Fdata%2Fagenclave.db
+        # used to resolve to the real file and get served
+        candidate = (FRONTEND_DIST / full_path).resolve()
+        if full_path and candidate.is_relative_to(dist_root) and candidate.is_file():
             return FileResponse(candidate)
         return FileResponse(index)
 
