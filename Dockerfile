@@ -28,7 +28,7 @@ RUN apt-get update \
 COPY requirements-serve.txt ./
 RUN pip install --no-cache-dir -r requirements-serve.txt
 
-# Application code + trained model + the committed demo run (/runs/latest).
+# Application code, the trained classifier, the reliability store and the practice bugs.
 COPY src/ ./src/
 COPY models/ ./models/
 COPY results/ ./results/

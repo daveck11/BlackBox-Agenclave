@@ -77,20 +77,17 @@ function Routing({ routing }) {
       </div>
       {noHistory && (
         <div className="honesty">
-          No verified history yet - routing is <strong>exploring</strong>. The web
-          demo judges with the Chairman and does not verify patches, so it does not
-          update trust. Reliability is learned only from in-loop verification runs.
+          No verified history yet, so routing is exploring. The store only moves when a
+          patch is actually tested: a run on a practice bug does that; a free-text issue
+          has no repo to test against and records nothing.
         </div>
       )}
     </div>
   )
 }
 
-// Verification panel: for a practice-bug (fixture) run the backend actually
-// applies each patch and runs the tests. This shows who passed - and, when the
-// Chairman's read-the-patch pick differs from what the tests prove, calls it out.
-// Verification panel: just notes that the tests were actually run. The winner
-// and the reasoning are announced by the Chairman verdict below.
+// Verification panel: notes that the tests were run. The winner and the
+// reasoning are in the Chairman verdict below.
 function Verification({ fixture }) {
   return (
     <div className="verify">
@@ -98,7 +95,7 @@ function Verification({ fixture }) {
         Verification - ran the tests{fixture?.module ? ` (${fixture.module})` : ''}
       </div>
       <p className="verify-note">
-        Each candidate patch was applied in a sandbox and its tests were run.
+        Each candidate patch was applied to a scratch copy of the repo and its tests were run.
       </p>
     </div>
   )
