@@ -188,19 +188,110 @@ def test_dry_run_shows_routing_projection_without_spending(client, monkeypatch):
 def test_web_run_never_writes_reliability(client, monkeypatch):
     # Guardrail: a free-text web run has no in-loop verification, so it must never
     # record outcomes into reliability. If it tried, this raising stub would surface it.
+    # patch the name runs.py imported, not reliability.record_outcome
     _patch_stage2(monkeypatch)
-    from agenclave.harness import reliability as rel_mod
+    from agenclave.api.routes import runs as runs_mod
 
     def _boom(*a, **k):  # pragma: no cover - only fires on a violation
         raise AssertionError("web run must not write reliability (read-only prior)")
 
-    monkeypatch.setattr(rel_mod, "record_outcome", _boom)
+    monkeypatch.setattr(runs_mod, "record_outcome", _boom)
     alice = _auth(client, "alice@example.com")
     resp = client.post(
         "/runs", json={"title": "Crash", "body": "boom", "live": True}, headers=alice
     )
     assert resp.status_code == 200
     assert resp.json()["ran_live"] is True
+
+
+def _patch_fixture_run(monkeypatch, *, triage_label, applies, tests_passed):
+    # live fixture run with dispatch, verify and the judge stubbed out
+    from types import SimpleNamespace
+
+    from agenclave.api.routes import runs as runs_mod
+
+    monkeypatch.setattr(
+        runs_mod,
+        "predict_triage",
+        lambda title, body="": {
+            "label": triage_label,
+            "label_confidence": 0.6,
+            "severity": None,
+            "top_tokens": [],
+        },
+    )
+    monkeypatch.setattr(runs_mod, "build_agents", lambda provider, models: ["agent"])
+
+    async def _fake_dispatch(task, agents):
+        return [SimpleNamespace(agent_name="m1", ok=True, error=None, patch="diff")]
+
+    monkeypatch.setattr(runs_mod, "dispatch", _fake_dispatch)
+    monkeypatch.setattr(
+        runs_mod,
+        "verify_patch",
+        lambda *a, **k: SimpleNamespace(
+            applies=applies, tests_passed=tests_passed, passed=int(tests_passed),
+            total=1, evidence="", error=None,
+        ),
+    )
+    recorded = []
+    monkeypatch.setattr(
+        runs_mod, "record_outcome", lambda m, c, p: recorded.append((m, c, p))
+    )
+
+    class _FakeChairman:
+        def __init__(self, model, **kwargs):
+            pass
+
+        async def explain(self, task, candidates, vrs, winner):
+            return SimpleNamespace(
+                selected_agent="m1", ranking=[winner], rationale="ok", synthesized_patch=None
+            )
+
+        async def judge(self, task, candidates):
+            return SimpleNamespace(
+                selected_agent="m1", ranking=["m1"], rationale="read", synthesized_patch=None
+            )
+
+    monkeypatch.setattr(runs_mod, "Chairman", _FakeChairman)
+    return recorded
+
+
+def test_fixture_gate_uses_fixture_category(client, monkeypatch):
+    # the classifier reads some fixtures as documentation; that can't block them
+    recorded = _patch_fixture_run(
+        monkeypatch, triage_label="documentation", applies=True, tests_passed=True
+    )
+    alice = _auth(client, "alice@example.com")
+    resp = client.post(
+        "/runs",
+        json={"title": "t", "body": "b", "live": True, "fixture_id": "calc-add"},
+        headers=alice,
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["triage"]["label"] == "documentation"
+    assert body["gate"]["passed"] is True
+    assert "documentation" in body["gate"]["reason"]
+    assert body["verified_winner"] == "m1"
+    assert recorded == [("m1", "bug", True)]
+
+
+def test_no_verified_winner_when_nothing_applies(client, monkeypatch):
+    recorded = _patch_fixture_run(
+        monkeypatch, triage_label="bug", applies=False, tests_passed=False
+    )
+    alice = _auth(client, "alice@example.com")
+    resp = client.post(
+        "/runs",
+        json={"title": "t", "body": "b", "live": True, "fixture_id": "calc-add"},
+        headers=alice,
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["verification"][0]["tier"] == "broken"
+    assert body["verified_winner"] is None
+    assert recorded == [("m1", "bug", False)]
 
 
 # --- live-run gate: login + one global cap per UTC day -------------------------

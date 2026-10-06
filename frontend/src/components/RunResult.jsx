@@ -152,6 +152,9 @@ export default function RunResult({ result }) {
       ? ` ${ruledOut.join(', ')} ${ruledOut.length === 1 ? 'is' : 'are'} ruled out for not passing the tests.`
       : ''
     verdictLine = `${modelName(winner)} ${wt}. ${why}${ruled}`
+  } else if (isFixture && !winner) {
+    verdictLine =
+      'No candidate patch applied and passed the tests, so there is no verified winner for this run.'
   }
 
   return (

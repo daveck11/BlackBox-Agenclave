@@ -22,7 +22,7 @@ from ...config import settings
 from ...fixtures import get_fixture
 from ...harness import Chairman, Task, build_agents, dispatch, route
 from ...harness.reliability import record_outcome
-from ...harness.trust import trust_rank
+from ...harness.trust import BROKEN, trust_rank
 from ...harness.verify import verify_patch
 from ..auth import get_current_user, get_optional_user
 from ..db import get_session
@@ -96,18 +96,30 @@ async def run_pipeline(
         ) from exc
 
     label = tri["label"]
-    passed = label == "bug"
     models = settings.agent_model_list
     # Optional practice-bug fixture: when set, the agents are shown its file and
     # each candidate is verified against its own tests (the real trust loop).
     fixture = get_fixture(req.fixture_id) if req.fixture_id else None
 
+    # The gate. A fixture is a known bug, so its own category decides; triage
+    # still runs and is shown, but it reads three of the ten fixtures as
+    # documentation or feature requests. `category` also keys routing and the
+    # reliability store.
+    category = fixture.category if fixture else label
+    passed = category == "bug"
+    if passed:
+        gate_reason = "Bug. Sent to the agents."
+        if fixture and label != "bug":
+            gate_reason = (
+                f"Practice bug, so it goes to the agents (triage read it as {label})."
+            )
+    else:
+        gate_reason = f"Not a bug ({label}). Harness skipped."
+
     # When the gate passes, route to a subset of the panel instead of always
-    # dispatching everyone. Read-only: a web run has no repo checkout, so
-    # there is no verify_patch result here, and we must not call
-    # record_outcome without one (writing the judge's opinion into the
-    # reliability store would defeat the point of it).
-    routing = route(label, models, settings.route_k) if passed else None
+    # dispatching everyone. Routing is read-only; the store is written further
+    # down, and only from a verify_patch result.
+    routing = route(category, models, settings.route_k) if passed else None
     run_models = routing.selected if routing else models
 
     projection = sum(_cost_per_call(m) for m in run_models) + _cost_per_call(
@@ -120,14 +132,7 @@ async def run_pipeline(
             "confidence": tri["label_confidence"],
             "top_tokens": tri["top_tokens"],
         },
-        "gate": {
-            "passed": passed,
-            "reason": (
-                "Bug. Sent to the agents."
-                if passed
-                else f"Not a bug ({label}). Harness skipped."
-            ),
-        },
+        "gate": {"passed": passed, "reason": gate_reason},
         "routing": (
             {
                 "selected": routing.selected,
@@ -223,9 +228,15 @@ async def run_pipeline(
                 # bars a held-out grade, which this is not; the non-fixture web path
                 # records nothing because it has no verification).
                 for name, vr in vrs.items():
-                    record_outcome(name, label, vr.tests_passed)
-                ranking = trust_rank(candidates, vrs, category=label)
-                winner = ranking[0].agent_name if ranking else None
+                    record_outcome(name, category, vr.tests_passed)
+                ranking = trust_rank(candidates, vrs, category=category)
+                # no winner if nothing applied; with every candidate broken
+                # (bad key, say) ranking[0] is just the first failure
+                winner = (
+                    ranking[0].agent_name
+                    if ranking and ranking[0].tier != BROKEN
+                    else None
+                )
                 out["verification"] = [
                     {
                         "agent": v.agent_name,
