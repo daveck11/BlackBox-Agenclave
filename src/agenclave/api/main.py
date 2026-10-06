@@ -1,77 +1,104 @@
-# Stage 1 FastAPI triage service.
+# FastAPI app factory for the Agenclave service.
 #
-# Wraps the torch-free `predict_triage` inference path behind a small HTTP API:
-#
-# - `GET  /health`  -> liveness + whether the production model is loadable.
-# - `POST /triage`  -> classify an issue into type (and severity if that optional
-#   head is present; the shipped deliverable is type-only, so severity is null).
-#
-# Run with::
-#
-#     uvicorn agenclave.api.main:app --reload
+# Stage 1 (triage) + Stage 2 (best-of-N pipeline) + Stage 3 (accounts,
+# persistence, recommendations). Routes live in `agenclave.api.routes.*`; this
+# module just assembles them, configures CORS, and initialises the database on
+# startup. `app = create_app()` is kept at module level so the usual
+# `uvicorn agenclave.api.main:app` entry point still works.
 
 from __future__ import annotations
 
 import logging
+from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
-from agenclave.classifier.predict import ModelsNotTrained, predict_triage
-
-from .schemas import TriageRequest, TriageResponse
+from ..config import ROOT
+from .db import init_db
+from .routes import auth, fixtures, issues, runs, triage
 
 logger = logging.getLogger("agenclave.api")
 
-app = FastAPI(title="Agenclave Triage API", version="0.1.0")
+# Built single-page app (produced by `npm run build` in frontend/). When present,
+# the API serves it at "/" so the whole product is one origin / one process.
+FRONTEND_DIST = ROOT / "frontend" / "dist"
 
-# Permissive CORS for local dev: the Vite demo calls this from another port.
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=False,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-
-@app.get("/health")
-def health() -> dict:
-    # Liveness probe that also reports whether the models can be loaded.
-    models_loaded = True
-    try:
-        # A blank-ish probe is enough to force model load via predict_triage;
-        # title carries signal so the request schema is satisfied.
-        predict_triage("ping", "")
-    except ModelsNotTrained:
-        models_loaded = False
-    except Exception:  # noqa: BLE001 - health must never raise.
-        logger.exception("health check: unexpected error during model probe")
-        models_loaded = False
-    return {"status": "ok", "models_loaded": models_loaded}
+# The Vite dev server (the demo frontend) calls the API from these origins.
+ALLOWED_ORIGINS = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+]
 
 
-@app.post("/triage", response_model=TriageResponse)
-def triage(req: TriageRequest) -> TriageResponse:
-    # Classify a single issue. Validation errors surface as 422 automatically.
-    try:
-        result = predict_triage(req.title, req.body)
-    except ModelsNotTrained as exc:
-        logger.warning("triage requested but models are missing: %s", exc)
-        raise HTTPException(
-            status_code=503,
-            detail="models not trained; run scripts/train_classifier.py",
-        ) from exc
-    except Exception as exc:  # noqa: BLE001 - safe message, log the detail.
-        logger.exception("triage failed unexpectedly")
-        raise HTTPException(
-            status_code=500, detail="internal error during triage"
-        ) from exc
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Create the database schema before serving requests.
+    await init_db()
+    # Warm the classifier in a background thread so the first request is not slow,
+    # without blocking startup (a slow startup times out small-host health checks).
+    import threading
 
-    return TriageResponse(
-        label=result["label"],
-        confidence=result["label_confidence"],
-        severity=result["severity"],
-        severity_confidence=result["severity_confidence"],
-        top_tokens=result["top_tokens"],
+    def _warm() -> None:
+        try:
+            from ..classifier.predict import _load_models
+
+            _load_models()
+        except Exception:  # noqa: BLE001 - warm-up is best-effort.
+            logger.exception("model warm-up failed")
+
+    threading.Thread(target=_warm, daemon=True).start()
+    yield
+
+
+def create_app() -> FastAPI:
+    # Build and configure the FastAPI application.
+    app = FastAPI(title="Agenclave API", version="0.2.0", lifespan=lifespan)
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=ALLOWED_ORIGINS,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
     )
+
+    app.include_router(triage.router)
+    app.include_router(auth.router)
+    app.include_router(issues.router)
+    app.include_router(runs.router)
+    app.include_router(fixtures.router)
+
+    _mount_frontend(app)
+    return app
+
+
+def _mount_frontend(app: FastAPI) -> None:
+    # Serve the built React app (if present) for a single-origin, single-command
+    # deployment. API routes are registered first, so they win; the catch-all
+    # only handles unmatched GETs - real static files, else index.html (so
+    # client-side deep links like /workspace resolve to the SPA).
+    index = FRONTEND_DIST / "index.html"
+    if not index.is_file():
+        logger.info("frontend build not found at %s; serving API only", FRONTEND_DIST)
+        return
+
+    assets = FRONTEND_DIST / "assets"
+    if assets.is_dir():
+        app.mount("/assets", StaticFiles(directory=assets), name="assets")
+
+    dist_root = FRONTEND_DIST.resolve()
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    async def spa(full_path: str) -> FileResponse:
+        # stay inside dist/: uvicorn decodes %2F, so ..%2F..%2Fdata%2Fagenclave.db
+        # used to resolve to the real file and get served
+        candidate = (FRONTEND_DIST / full_path).resolve()
+        if full_path and candidate.is_relative_to(dist_root) and candidate.is_file():
+            return FileResponse(candidate)
+        return FileResponse(index)
+
+
+app = create_app()

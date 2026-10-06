@@ -9,18 +9,19 @@
 # - `complete_json`  -> a completion constrained to a JSON object matching a
 #   schema (Claude: forced tool use; OpenAI: JSON response format).
 #
-# These deliberately use only the stable `messages.create` /
-# `chat.completions.create` surface so they work with the pinned SDKs
-# (anthropic 0.40.0, openai 1.57.4). Adaptive thinking is intentionally NOT sent:
-# it post-dates the pinned anthropic SDK. If the SDK is upgraded, pass
-# `thinking={"type": "adaptive"}` to the judge call for better reasoning.
+# Only the stable `messages.create` / `chat.completions.create` surface is
+# used, so this works with the pinned SDKs (anthropic 0.40.0, openai
+# 1.57.4). Adaptive thinking isn't sent because it post-dates the pinned
+# anthropic SDK.
 
 from __future__ import annotations
 
 import functools
 import json
+import re
 from typing import Any
 
+from ...config import GATEWAY_PROVIDERS
 from ..interfaces import Agent, PatchResult, Task
 from .base import AGENT_SYSTEM_PROMPT, build_task_prompt, extract_diff
 
@@ -34,7 +35,7 @@ def is_openai_model(model: str) -> bool:
     return m.startswith(("gpt", "o1", "o3", "o4", "chatgpt"))
 
 
-# --- Cached async clients (created on first use; need keys only then) ----------
+# clients are created on first use so importing this module needs no keys
 @functools.lru_cache(maxsize=1)
 def _anthropic_client():
     import anthropic  # lazy: avoid import cost / key lookup at module load
@@ -53,17 +54,41 @@ def _openai_client():
     return openai.AsyncOpenAI(api_key=settings.openai_api_key or None)
 
 
-# ------------------------------------------------------------------------------
-# Low-level completions (provider-routed by model name)
-# ------------------------------------------------------------------------------
+@functools.lru_cache(maxsize=4)
+def _gateway_client(provider: str):
+    # BlackBox and OpenRouter are OpenAI-compatible: same SDK, different base_url
+    # + key. Used so the Chairman judge routes through the same gateway as the agents.
+    import openai  # lazy
+
+    from ...config import settings
+
+    return openai.AsyncOpenAI(
+        api_key=settings.gateway_api_key(provider) or "",
+        base_url=settings.gateway_api_base(provider),
+    )
+
+
 async def complete_text(
     model: str,
     system: str,
     user: str,
     *,
     max_tokens: int = 4096,
+    provider: str = "direct",
 ) -> str:
-    # Single text completion. Routes to Anthropic or OpenAI by model name.
+    # Single text completion. A gateway provider routes through its
+    # OpenAI-compatible endpoint; otherwise routes to Anthropic/OpenAI by name.
+    if provider in GATEWAY_PROVIDERS:
+        client = _gateway_client(provider)
+        resp = await client.chat.completions.create(
+            model=model,
+            max_tokens=max_tokens,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+        )
+        return resp.choices[0].message.content or ""
     if is_anthropic_model(model):
         client = _anthropic_client()
         resp = await client.messages.create(
@@ -89,6 +114,30 @@ async def complete_text(
     )
 
 
+def _parse_json_object(text: str) -> dict[str, Any]:
+    # Best-effort JSON extraction for endpoints without a JSON mode: the model is
+    # asked for JSON in the prompt but may still wrap it in prose or a ```json
+    # fence. Strip a fence, then fall back to the outermost {...} block. Returns
+    # {} if nothing parses (the Chairman handles an empty decision gracefully).
+    text = (text or "").strip()
+    if not text:
+        return {}
+    fence = re.search(r"```(?:json)?\s*\n?(.*?)```", text, re.DOTALL)
+    if fence:
+        text = fence.group(1).strip()
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+    start, end = text.find("{"), text.rfind("}")
+    if start != -1 and end > start:
+        try:
+            return json.loads(text[start : end + 1])
+        except json.JSONDecodeError:
+            return {}
+    return {}
+
+
 async def complete_json(
     model: str,
     system: str,
@@ -97,12 +146,33 @@ async def complete_json(
     *,
     tool_name: str = "submit",
     max_tokens: int = 4096,
+    provider: str = "direct",
 ) -> dict[str, Any]:
-    # Completion constrained to a JSON object matching `schema`.
-    #
-    #     Anthropic: a single forced tool whose `input_schema` is `schema`, the
-    #     model must call it, and we return the validated tool input. OpenAI: JSON
-    #     response format, with the schema embedded in the prompt, then `json.loads`.
+    """Completion constrained to a JSON object matching `schema`.
+
+    For Anthropic this is a single forced tool call whose input_schema is
+    the schema. For OpenAI it's JSON response format with the schema pasted
+    into the prompt. A gateway gets the schema in the prompt and the JSON is
+    parsed out of the text.
+    """
+    if provider in GATEWAY_PROVIDERS:
+        client = _gateway_client(provider)
+        user_with_schema = (
+            f"{user}\n\nRespond with ONLY a JSON object matching this schema - no "
+            f"prose, no markdown fences:\n{json.dumps(schema)}"
+        )
+        # Open-weight endpoints reject response_format=json_object, so ask for
+        # JSON in the prompt and parse it tolerantly from the text.
+        resp = await client.chat.completions.create(
+            model=model,
+            max_tokens=max_tokens,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": user_with_schema},
+            ],
+        )
+        return _parse_json_object(resp.choices[0].message.content or "")
+
     if is_anthropic_model(model):
         client = _anthropic_client()
         resp = await client.messages.create(
@@ -146,16 +216,10 @@ async def complete_json(
     )
 
 
-# ------------------------------------------------------------------------------
-# Agent
-# ------------------------------------------------------------------------------
 class DirectAgent(Agent):
-    # A coding agent backed directly by a Claude or OpenAI model.
-    #
-    #     `propose_patch` never raises for normal failures (network/API errors,
-    #     empty output): it captures them in `PatchResult.error` so dispatch can
-    #     keep the other candidates. `ValueError` for an unknown model is a config
-    #     error and surfaces at construction, not here.
+    # An agent backed directly by a Claude or OpenAI model. propose_patch
+    # catches normal failures into PatchResult.error; an unknown model name
+    # is a config mistake and fails at construction instead.
 
     def __init__(self, model: str, *, max_tokens: int = 4096) -> None:
         if not (is_anthropic_model(model) or is_openai_model(model)):

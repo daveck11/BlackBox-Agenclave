@@ -1,0 +1,18 @@
+{
+  "deepseek/deepseek-v4-pro|bug": {
+    "passed": 17,
+    "total": 18
+  },
+  "mistralai/devstral-2512|bug": {
+    "passed": 2,
+    "total": 5
+  },
+  "moonshotai/kimi-k2.7-code|bug": {
+    "passed": 19,
+    "total": 19
+  },
+  "nvidia/nemotron-3-nano-30b-a3b|bug": {
+    "passed": 16,
+    "total": 17
+  }
+}

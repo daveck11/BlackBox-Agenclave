@@ -1,9 +1,6 @@
-# Tests for the Stage 1 FastAPI triage service (API contract).
-#
-# Fast and torch-free: only the lightweight `predict` import path is exercised.
-# The happy path adapts to model state, if the production models exist it asserts
-# a real 200 prediction; if they are absent it asserts a clean 503. No mocked or
-# fabricated predictions.
+# API contract tests for the triage service. Torch-free. The happy path
+# adapts to model state: with the trained models present it asserts a real
+# 200 prediction, without them a clean 503.
 
 from __future__ import annotations
 
@@ -37,6 +34,19 @@ def test_health_ok_shape():
     assert isinstance(body["models_loaded"], bool)
     # models_loaded must reflect actual disk state.
     assert body["models_loaded"] is MODELS_EXIST
+
+
+def test_spa_route_stays_inside_dist():
+    import pytest
+
+    if not (ROOT / "frontend" / "dist" / "index.html").exists():
+        pytest.skip("frontend not built; the catch-all is not mounted")
+    # used to serve pyproject.toml (and data/agenclave.db) via ..%2F
+    for path in ("/..%2F..%2Fpyproject.toml", "/../../pyproject.toml"):
+        resp = client.get(path)
+        assert resp.status_code == 200
+        assert b"<!doctype html>" in resp.content.lower()
+        assert b"[build-system]" not in resp.content
 
 
 # --- /triage validation (422) -------------------------------------------------
@@ -76,11 +86,19 @@ def test_triage_happy_path_or_503():
         "severity",
         "severity_confidence",
         "top_tokens",
+        "recommendations",
+        "can_proceed_to_stage2",
     }
     assert body["label"] in TYPE_CLASSES
     assert 0.0 <= body["confidence"] <= 1.0
     assert isinstance(body["top_tokens"], list)
     assert all(isinstance(tok, str) for tok in body["top_tokens"])
+    # Stage 3 enrichment: deterministic recommendations + the Stage 2 gate flag.
+    assert isinstance(body["recommendations"], list) and body["recommendations"]
+    assert all({"title", "detail", "kind"} <= set(r) for r in body["recommendations"])
+    assert isinstance(body["can_proceed_to_stage2"], bool)
+    # Only a bug is eligible for Stage 2.
+    assert body["can_proceed_to_stage2"] is (body["label"] == "bug")
     # Severity is optional (type-only deliverable): either a valid class with a
     # [0,1] confidence, or null/null when the severity head is not present.
     if body["severity"] is None:

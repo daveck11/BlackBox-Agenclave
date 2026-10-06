@@ -39,6 +39,60 @@ def test_extract_diff_empty():
     assert extract_diff("") == ""
 
 
+def test_build_task_prompt_shows_the_file_when_present():
+    # A fixture/repo run hands the agent the exact file; the blind path does not.
+    from agenclave.harness.interfaces import Task
+    from agenclave.harness.providers.base import build_task_prompt
+
+    with_file = Task(
+        instance_id="x",
+        repo="r",
+        problem_statement="add() is wrong",
+        files={"calc.py": "def add(a, b):\n    return a - b\n"},
+    )
+    prompt = build_task_prompt(with_file)
+    assert "calc.py" in prompt
+    assert "return a - b" in prompt
+
+    blind = Task(instance_id="x", repo="r", problem_statement="add() is wrong")
+    assert "calc.py" not in build_task_prompt(blind)
+
+
+def test_extract_diff_strips_patch_tags():
+    # Some models wrap the diff in <patch>...</patch>; the closing tag must not
+    # leak into the patch (it makes `git apply` reject an otherwise-good fix).
+    text = (
+        "<patch>\n"
+        "diff --git a/mathx.py b/mathx.py\n"
+        "--- a/mathx.py\n+++ b/mathx.py\n"
+        "@@ -1,2 +1,2 @@\n"
+        "-    if n == 1:\n"
+        "+    if n == 0 or n == 1:\n"
+        "</patch>\n"
+    )
+    out = extract_diff(text)
+    assert out.startswith("diff --git a/mathx.py")
+    assert "+    if n == 0 or n == 1:" in out
+    assert "</patch>" not in out and "<patch>" not in out
+
+
+def test_extract_diff_strips_trailing_fence():
+    # A bare diff followed by a leaked closing ``` must come back fence-free.
+    text = (
+        "diff --git a/acc.py b/acc.py\n"
+        "--- a/acc.py\n+++ b/acc.py\n"
+        "@@ -1,2 +1,3 @@\n"
+        " def collect(value, into=None):\n"
+        "+    if into is None:\n"
+        "+        into = []\n"
+        "```\n"
+    )
+    out = extract_diff(text)
+    assert "```" not in out
+    assert "+        into = []" in out
+    assert out.rstrip().endswith("into = []")
+
+
 # --- build_agents factory -----------------------------------------------------
 def test_build_agents_direct():
     agents = build_agents("direct", ["claude-sonnet-4-6", "gpt-4o-mini"])
@@ -50,6 +104,22 @@ def test_build_agents_blackbox():
     agents = build_agents("blackbox", ["blackbox-coder"])
     assert isinstance(agents[0], BlackBoxAgent)
     assert agents[0].name == "blackbox:blackbox-coder"
+
+
+def test_build_agents_openrouter():
+    agents = build_agents("openrouter", ["moonshotai/kimi-k2.7-code"])
+    assert isinstance(agents[0], BlackBoxAgent)
+    assert agents[0].provider == "openrouter"
+    assert agents[0].name == "openrouter:moonshotai/kimi-k2.7-code"
+
+
+def test_build_agents_direct_prefix_mixes_providers():
+    # A `direct:` prefix routes one model through the direct Anthropic/OpenAI
+    # adapter while the rest of the panel stays on BlackBox.
+    agents = build_agents("blackbox", ["direct:claude-sonnet-5", "blackboxai/openai/gpt-5.4"])
+    assert isinstance(agents[0], DirectAgent)
+    assert agents[0].name == "claude-sonnet-5"
+    assert isinstance(agents[1], BlackBoxAgent)
 
 
 def test_build_agents_unknown_provider_raises():

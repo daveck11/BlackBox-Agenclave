@@ -1,0 +1,32 @@
+# Render blueprint - near one-click deploy of the Agenclave demo.
+# Render dashboard → New → Blueprint → connect this repo. Builds the Dockerfile and
+# serves UI + API from a single web service. SECRET_KEY is auto-generated.
+#
+# No provider API keys are set here, so a fresh deploy cannot trigger paid live
+# runs: triage and dry runs work, the Live toggle is hidden.
+#
+# To enable live runs, add these in the Render dashboard and redeploy. The fleet is
+# the four open-source models the reliability store was learned on
+# (results/model_reliability.json) with a gpt-oss-120b judge. OpenRouter is the
+# gateway since BlackBox closed self-serve API keys (October 2026); swap the
+# provider and key back to blackbox if you have enterprise access.
+#   AGENCLAVE_PROVIDER=openrouter
+#   OPENROUTER_API_KEY=sk-or-...
+#   AGENCLAVE_AGENT_MODELS=deepseek/deepseek-v4-pro,nvidia/nemotron-3-nano-30b-a3b,mistralai/devstral-2512,moonshotai/kimi-k2.7-code
+#   AGENCLAVE_CHAIRMAN_MODEL=openai/gpt-oss-120b
+#
+# With a key set, a live run needs a logged-in user and all users share one cap of
+# AGENCLAVE_LIVE_DAILY_CAP live runs per UTC day (default 20). The cap is counted
+# in the database, so point DATABASE_URL at Postgres (e.g. Neon) if the count and
+# the accounts should survive a restart of the free instance.
+services:
+  - type: web
+    name: agenclave
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: SECRET_KEY
+        generateValue: true

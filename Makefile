@@ -1,14 +1,16 @@
-# Agenclave — task runner.
+# Agenclave - task runner.
 # Windows (no `make`)? Each target maps to a one-line command shown in the README
 # Quickstart; run that command directly in PowerShell.
 
 PY ?= python
 VENV ?= .venv
 
-.PHONY: help setup data train eval stage1 serve demo test stage2 clean
+.PHONY: help setup data train eval stage1 serve demo web-build app dev test trust clean
 
 help:
-	@echo "Targets: setup | data | train | eval | stage1 | serve | demo | test | stage2"
+	@echo "Targets: setup | stage1 (data train eval) | app | dev | serve | demo | test | trust"
+	@echo "  app  = build UI + serve the whole product on :8000 (single command)"
+	@echo "  dev  = how to run API + Vite hot-reload for development"
 
 setup:                ## create venv + install pinned deps
 	$(PY) -m venv $(VENV)
@@ -33,11 +35,22 @@ serve:                ## run the FastAPI triage service on :8000
 demo:                 ## run the Vite React demo (expects `serve` running)
 	cd frontend && npm install && npm run dev
 
+web-build:            ## build the React app into frontend/dist
+	cd frontend && npm install && npm run build
+
+app: web-build        ## build the UI + serve the WHOLE product (UI+API) on :8000
+	$(PY) -m uvicorn agenclave.api.main:app --port 8000
+
+dev:                  ## how to run API + Vite hot-reload (two terminals)
+	@echo "Development (hot reload), run in two terminals:"
+	@echo "  1) make serve   # FastAPI on :8000"
+	@echo "  2) make demo    # Vite dev server on :5173 (proxies to :8000)"
+
 test:                 ## run the pytest suite
 	$(PY) -m pytest
 
-stage2:               ## run the Chairman best-of-N harness on the SWE-bench slice
-	$(PY) scripts/run_chairman.py
+trust:                ## verified best-of-N -> per-model reliability (dry run by default)
+	$(PY) scripts/verified_run.py
 
 clean:
 	rm -rf $(VENV) **/__pycache__ .pytest_cache

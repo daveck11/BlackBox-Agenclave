@@ -1,0 +1,33 @@
+# Run the pytest suite on every push to the deployed branches and on every PR.
+#
+# Installs the torch-free runtime set (requirements-serve.txt) plus the two test-only
+# libraries, not requirements.txt, which pulls CPU torch and the training stack. The
+# tests put src/ on sys.path through tests/conftest.py; test_verify needs git, which
+# ubuntu-latest ships with.
+
+name: ci
+
+on:
+  push:
+    branches: [main, feat/trust-scored-routing]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-serve.txt
+
+      - name: install runtime deps + test libs (no torch)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-serve.txt pytest-asyncio==0.24.0 respx==0.21.1
+
+      - name: pytest
+        run: python -m pytest
