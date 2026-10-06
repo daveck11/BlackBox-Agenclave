@@ -55,7 +55,9 @@ class Settings(BaseSettings):
     )
     # BlackBox exposes an OpenAI-compatible API; this is the client base_url the
     # adapter points the OpenAI SDK at. Override via AGENCLAVE_BLACKBOX_API_BASE.
-    blackbox_api_base: str = "https://api.blackbox.ai/v1"
+    # The old host, api.blackbox.ai, started returning 404 on every path in
+    # autumn 2026; enterprise.blackbox.ai is what BlackBox's quickstart uses.
+    blackbox_api_base: str = "https://enterprise.blackbox.ai/v1"
 
     # --- Accounts / persistence (Stage 3) ---
     # Override the secret in production via SECRET_KEY (or AGENCLAVE_SECRET_KEY).

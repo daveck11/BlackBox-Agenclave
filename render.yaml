@@ -2,25 +2,23 @@
 # Render dashboard → New → Blueprint → connect this repo. Builds the Dockerfile and
 # serves UI + API from a single web service. SECRET_KEY is auto-generated.
 #
-# SAFE BY DEFAULT: no provider API keys are set here, so the public demo cannot
-# trigger paid live runs. Triage (Stage 1) works, and the pre-computed Chairman run
-# is shown read-only via /runs/latest.
+# No provider API keys are set here, so a fresh deploy cannot trigger paid live
+# runs: triage and dry runs work, the Live toggle is hidden.
 #
-# To give a LIVE Blackbox demo (e.g. for a pitch), add these in the Render dashboard
-# and redeploy - then remove them afterwards so the URL can't spend your credits.
-# The fleet is the four open-source models the reliability store was learned on
-# (results/model_reliability.json), with a GLM-5.2 judge; confirm the ids against
-# your account's GET /models:
+# To enable live runs, add these in the Render dashboard and redeploy. The fleet is
+# the four open-source models the reliability store was learned on
+# (results/model_reliability.json) with a gpt-oss-120b judge; confirm the ids
+# against your account's GET /models:
 #   AGENCLAVE_PROVIDER=blackbox
 #   BLACKBOX_API_KEY=sk-...
-#   AGENCLAVE_BLACKBOX_API_BASE=https://api.blackbox.ai/v1
+#   AGENCLAVE_BLACKBOX_API_BASE=https://enterprise.blackbox.ai/v1
 #   AGENCLAVE_AGENT_MODELS=blackboxai/deepseek/deepseek-v4-pro,blackboxai/nvidia/nemotron-3-nano-30b-a3b,blackboxai/mistral/devstral-2,blackboxai/moonshotai/kimi-k2.7-code
-#   AGENCLAVE_CHAIRMAN_MODEL=blackboxai/z-ai/glm-5.2
+#   AGENCLAVE_CHAIRMAN_MODEL=blackboxai/openai/gpt-oss-120b
 #
-# Even with a key set, a live run needs a logged-in user and all users share one
-# cap of AGENCLAVE_LIVE_DAILY_CAP live runs per UTC day (default 20). The cap is
-# counted in the database, so point DATABASE_URL at Postgres (e.g. Neon) if the
-# count - and the accounts - should survive a restart of the free instance.
+# With a key set, a live run needs a logged-in user and all users share one cap of
+# AGENCLAVE_LIVE_DAILY_CAP live runs per UTC day (default 20). The cap is counted
+# in the database, so point DATABASE_URL at Postgres (e.g. Neon) if the count and
+# the accounts should survive a restart of the free instance.
 services:
   - type: web
     name: agenclave
