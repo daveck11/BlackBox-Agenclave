@@ -13,6 +13,7 @@ export default defineConfig({
       '/runs': 'http://localhost:8000',
       '/auth': 'http://localhost:8000',
       '/issues': 'http://localhost:8000',
+      '/fixtures': 'http://localhost:8000',
     },
   },
 })
