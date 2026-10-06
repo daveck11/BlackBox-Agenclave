@@ -29,19 +29,19 @@ Railway and Fly.io work the same way (both detect the `Dockerfile`; Fly: `fly la
 |-----|----------|-------|
 | `SECRET_KEY` | **Yes** | Any long random string. The dev default must **not** ship publicly (it signs JWTs). |
 | `PORT` | Auto | Render/Railway/Fly inject this; the image honours it. |
-| `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `BLACKBOX_API_KEY` | **No - leave UNSET on the public demo** | See security note. |
+| `BLACKBOX_API_KEY` (or `ANTHROPIC_API_KEY` / `OPENAI_API_KEY`) | No | Without a key, live runs can't fire and the Live toggle is hidden. See below before setting one. |
+| `AGENCLAVE_BLACKBOX_API_BASE` | No | Defaults to `https://enterprise.blackbox.ai/v1`. The old `api.blackbox.ai` host returns 404. |
 
-## Security: the public demo must not spend money
+## Spending money: what a key on the public instance means
 
-- **Do NOT set provider API keys on the public instance.** Without them, live runs
-  simply can't fire, so a random visitor can never trigger paid Anthropic/OpenAI/
-  Blackbox calls. Triage is free and fully works; live best-of-N + trust-scored
-  routing runs only when a key is set (locally or on a private instance).
-- Want to demo a *live* run for Roger? Do it locally or on a private instance with keys
-  set - not on the public URL.
-- If a key *is* set for a demo, two guards still apply: a live run needs a logged-in
-  user, and all users share one cap of `AGENCLAVE_LIVE_DAILY_CAP` live runs per UTC day
-  (default 20), counted in the database. Dry runs stay anonymous and free.
+- Without a provider key, nothing on the public URL can spend credits. Triage and dry
+  runs work for anyone.
+- With a key set, two guards apply: a live run needs a logged-in user, and all users
+  share one cap of `AGENCLAVE_LIVE_DAILY_CAP` live runs per UTC day (default 20),
+  counted in the database. Registration is open, so treat the cap as the real limit:
+  20 runs on the open-source fleet is a few cents a day.
+- The cap lives in the database. On the free instance SQLite resets on restart, so
+  set `DATABASE_URL` (Neon works) if the cap and the accounts should persist.
 
 ## Good to know
 
@@ -56,8 +56,9 @@ Railway and Fly.io work the same way (both detect the `Dockerfile`; Fly: `fly la
 
 ## Before you share the link (checklist)
 
-1. Open the URL on a phone, logged out - Triage returns a result, `/about` loads, no
-   console errors.
-2. `SECRET_KEY` is set; no provider keys on the public instance.
+1. Open the URL on a phone, logged out - Triage returns a result, a dry code-fix run
+   shows the routing decision, `/about` loads, no console errors.
+2. `SECRET_KEY` is set. If a provider key is set, `POST /runs` with `live: true` and
+   no token returns 401.
 3. The repo link in `frontend/src/pages/AboutPage.jsx` (`REPO_URL`) points at the real
    public repo.
