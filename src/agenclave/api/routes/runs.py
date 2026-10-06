@@ -34,24 +34,33 @@ logger = logging.getLogger("agenclave.api")
 router = APIRouter(tags=["runs"])
 
 # Rough $/1M tokens (input, output) for the live cost projection shown in the UI.
+# Gateway ids are provider/model; an old blackboxai/ prefix is stripped before lookup.
 _PRICE_PER_M = {
     "claude-opus-4-8": (5.0, 25.0),
     "claude-sonnet-4-6": (3.0, 15.0),
     "claude-haiku-4-5": (1.0, 5.0),
     "gpt-4o-mini": (0.15, 0.60),
     "gpt-4o": (2.5, 10.0),
-    # BlackBox-routed model ids (same per-1M rates as the underlying models).
-    "blackboxai/anthropic/claude-opus-4.7": (5.0, 25.0),
-    "blackboxai/anthropic/claude-sonnet-4.6": (3.0, 15.0),
-    "blackboxai/openai/gpt-5.4": (2.5, 15.0),
-    "blackboxai/google/gemini-3.1-flash-lite": (0.25, 1.5),
-    "blackboxai/deepseek/deepseek-v4-pro": (0.43, 0.87),
+    "anthropic/claude-opus-4.7": (5.0, 25.0),
+    "anthropic/claude-sonnet-4.6": (3.0, 15.0),
+    "openai/gpt-5.4": (2.5, 15.0),
+    "openai/gpt-oss-120b": (0.04, 0.17),
+    "google/gemini-3.1-flash-lite": (0.25, 1.5),
+    "deepseek/deepseek-v4-pro": (0.21, 0.42),
+    "moonshotai/kimi-k2.7-code": (0.67, 3.35),
+    "nvidia/nemotron-3-nano-30b-a3b": (0.05, 0.20),
+    "mistralai/devstral-2512": (0.40, 2.00),
+    "mistral/devstral-2": (0.40, 2.00),
+    "z-ai/glm-5.2": (0.40, 4.18),
 }
 _EST_INPUT_TOKENS = 2500
 _EST_OUTPUT_TOKENS = 1200
 
 
 def _cost_per_call(model: str) -> float:
+    model = model.split(":", 1)[-1] if model.startswith("direct:") else model
+    if model.startswith("blackboxai/"):
+        model = model[len("blackboxai/"):]
     pin, pout = _PRICE_PER_M.get(model, (0.0, 0.0))
     return (_EST_INPUT_TOKENS * pin + _EST_OUTPUT_TOKENS * pout) / 1_000_000
 

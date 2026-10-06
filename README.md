@@ -124,12 +124,12 @@ Per-model reliability is learned in-loop by the verified harness (`make trust`,
 `results/model_reliability.json`. The current store, on the open-source fleet routed
 through BlackBox (bug fixtures only):
 
-| Model (via BlackBox)                 | Verified pass rate (bug fixtures) |
+| Model (via BlackBox, now OpenRouter)  | Verified pass rate (bug fixtures) |
 | ------------------------------------ | --------------------------------- |
 | `moonshotai/kimi-k2.7-code`          | 17 / 17                           |
 | `deepseek/deepseek-v4-pro`           | 15 / 16                           |
 | `nvidia/nemotron-3-nano-30b-a3b`     | 14 / 15                           |
-| `mistral/devstral-2`                 | 2 / 5                             |
+| `mistralai/devstral-2512`                 | 2 / 5                             |
 
 These counts are **small-`n`** by design and move as more verified runs accumulate -
 the point is the *mechanism* (verify → tier → rank → route), not a headline score.

@@ -13,6 +13,11 @@ DATA_DIR = ROOT / "data"
 MODELS_DIR = ROOT / "models"
 RESULTS_DIR = ROOT / "results"
 
+# OpenAI-compatible gateways. Same adapter, different key and base URL.
+# openrouter is the fallback since BlackBox closed self-serve API keys
+# (October 2026); the model ids are the same provider/model form on both.
+GATEWAY_PROVIDERS = ("blackbox", "openrouter")
+
 
 class Settings(BaseSettings):
     # Runtime settings, overridable via environment / .env.
@@ -26,8 +31,9 @@ class Settings(BaseSettings):
         env_file=".env", env_prefix="AGENCLAVE_", extra="ignore"
     )
 
-    # --- Provider selection (Stage 2) ---
-    # "direct" -> Claude/OpenAI; "blackbox" -> everything via BlackBox's API.
+    # --- Provider selection ---
+    # "direct" -> Claude/OpenAI by name; "blackbox" or "openrouter" -> every
+    # agent and the judge through that gateway.
     provider: str = "direct"
     agent_models: str = "claude-sonnet-4-6,gpt-4o-mini"
     chairman_model: str = "claude-opus-4-8"
@@ -58,6 +64,11 @@ class Settings(BaseSettings):
     # The old host, api.blackbox.ai, started returning 404 on every path in
     # autumn 2026; enterprise.blackbox.ai is what BlackBox's quickstart uses.
     blackbox_api_base: str = "https://enterprise.blackbox.ai/v1"
+    openrouter_api_key: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("OPENROUTER_API_KEY", "AGENCLAVE_OPENROUTER_API_KEY"),
+    )
+    openrouter_api_base: str = "https://openrouter.ai/api/v1"
 
     # --- Accounts / persistence (Stage 3) ---
     # Override the secret in production via SECRET_KEY (or AGENCLAVE_SECRET_KEY).
@@ -76,6 +87,12 @@ class Settings(BaseSettings):
     @property
     def agent_model_list(self) -> list[str]:
         return [m.strip() for m in self.agent_models.split(",") if m.strip()]
+
+    def gateway_api_key(self, provider: str) -> str | None:
+        return getattr(self, f"{provider}_api_key")
+
+    def gateway_api_base(self, provider: str) -> str:
+        return getattr(self, f"{provider}_api_base")
 
     @field_validator("database_url")
     @classmethod

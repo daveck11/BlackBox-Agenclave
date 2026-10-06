@@ -55,6 +55,16 @@ def test_normalize_strips_blackbox_prefix():
     assert _normalize_model("claude-sonnet-4-6") == "claude-sonnet-4-6"
 
 
+def test_normalize_collapses_gateways_onto_one_id():
+    # the same model via old BlackBox ids and via OpenRouter shares one entry
+    assert _normalize_model("blackbox:blackboxai/moonshotai/kimi-k2.7-code") == (
+        "moonshotai/kimi-k2.7-code"
+    )
+    assert _normalize_model("openrouter:moonshotai/kimi-k2.7-code") == (
+        "moonshotai/kimi-k2.7-code"
+    )
+
+
 def test_provider_prefix_is_collapsed_in_store(tmp_path):
     # "blackbox:claude" and "claude" are the same model - counts must merge.
     store = tmp_path / "rel.json"

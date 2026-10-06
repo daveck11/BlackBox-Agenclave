@@ -1,17 +1,17 @@
 {
-  "blackboxai/deepseek/deepseek-v4-pro|bug": {
+  "deepseek/deepseek-v4-pro|bug": {
     "passed": 15,
     "total": 16
   },
-  "blackboxai/mistral/devstral-2|bug": {
+  "mistralai/devstral-2512|bug": {
     "passed": 2,
     "total": 5
   },
-  "blackboxai/moonshotai/kimi-k2.7-code|bug": {
+  "moonshotai/kimi-k2.7-code|bug": {
     "passed": 17,
     "total": 17
   },
-  "blackboxai/nvidia/nemotron-3-nano-30b-a3b|bug": {
+  "nvidia/nemotron-3-nano-30b-a3b|bug": {
     "passed": 14,
     "total": 15
   }

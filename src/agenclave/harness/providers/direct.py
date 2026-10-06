@@ -21,6 +21,7 @@ import json
 import re
 from typing import Any
 
+from ...config import GATEWAY_PROVIDERS
 from ..interfaces import Agent, PatchResult, Task
 from .base import AGENT_SYSTEM_PROMPT, build_task_prompt, extract_diff
 
@@ -53,17 +54,17 @@ def _openai_client():
     return openai.AsyncOpenAI(api_key=settings.openai_api_key or None)
 
 
-@functools.lru_cache(maxsize=1)
-def _blackbox_client():
-    # BlackBox is OpenAI-compatible: same SDK, different base_url + key. Used when
-    # provider="blackbox" so the Chairman judge can also route through BlackBox.
+@functools.lru_cache(maxsize=4)
+def _gateway_client(provider: str):
+    # BlackBox and OpenRouter are OpenAI-compatible: same SDK, different base_url
+    # + key. Used so the Chairman judge routes through the same gateway as the agents.
     import openai  # lazy
 
     from ...config import settings
 
     return openai.AsyncOpenAI(
-        api_key=settings.blackbox_api_key or "",
-        base_url=settings.blackbox_api_base,
+        api_key=settings.gateway_api_key(provider) or "",
+        base_url=settings.gateway_api_base(provider),
     )
 
 
@@ -75,10 +76,10 @@ async def complete_text(
     max_tokens: int = 4096,
     provider: str = "direct",
 ) -> str:
-    # Single text completion. provider="blackbox" routes through BlackBox's
+    # Single text completion. A gateway provider routes through its
     # OpenAI-compatible endpoint; otherwise routes to Anthropic/OpenAI by name.
-    if provider == "blackbox":
-        client = _blackbox_client()
+    if provider in GATEWAY_PROVIDERS:
+        client = _gateway_client(provider)
         resp = await client.chat.completions.create(
             model=model,
             max_tokens=max_tokens,
@@ -150,17 +151,18 @@ async def complete_json(
     """Completion constrained to a JSON object matching `schema`.
 
     For Anthropic this is a single forced tool call whose input_schema is
-    the schema. For OpenAI (and BlackBox, which speaks the same protocol)
-    it's JSON response format with the schema pasted into the prompt.
+    the schema. For OpenAI it's JSON response format with the schema pasted
+    into the prompt. A gateway gets the schema in the prompt and the JSON is
+    parsed out of the text.
     """
-    if provider == "blackbox":
-        client = _blackbox_client()
+    if provider in GATEWAY_PROVIDERS:
+        client = _gateway_client(provider)
         user_with_schema = (
             f"{user}\n\nRespond with ONLY a JSON object matching this schema - no "
             f"prose, no markdown fences:\n{json.dumps(schema)}"
         )
-        # BlackBox's open-source endpoint rejects response_format=json_object, so
-        # ask for JSON in the prompt and parse it tolerantly from the text.
+        # Open-weight endpoints reject response_format=json_object, so ask for
+        # JSON in the prompt and parse it tolerantly from the text.
         resp = await client.chat.completions.create(
             model=model,
             max_tokens=max_tokens,

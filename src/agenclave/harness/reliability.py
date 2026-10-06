@@ -23,11 +23,15 @@ def _store_path(path: Path | str | None) -> Path:
 
 
 def _normalize_model(model: str) -> str:
-    # dispatch names BlackBox agents "blackbox:<model>"; strip that so the
-    # same model reached two ways shares one entry
-    model = model or ""
-    if model.startswith("blackbox:"):
-        model = model[len("blackbox:"):]
+    # dispatch names gateway agents "<provider>:<model>", and BlackBox's old
+    # ids carried a "blackboxai/" prefix that OpenRouter's don't; strip both so
+    # the same model reached two ways shares one entry
+    model = (model or "").strip()
+    for prefix in ("blackbox:", "openrouter:"):
+        if model.startswith(prefix):
+            model = model[len(prefix):]
+    if model.startswith("blackboxai/"):
+        model = model[len("blackboxai/"):]
     return model.strip()
 
 

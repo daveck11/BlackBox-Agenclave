@@ -106,6 +106,13 @@ def test_build_agents_blackbox():
     assert agents[0].name == "blackbox:blackbox-coder"
 
 
+def test_build_agents_openrouter():
+    agents = build_agents("openrouter", ["moonshotai/kimi-k2.7-code"])
+    assert isinstance(agents[0], BlackBoxAgent)
+    assert agents[0].provider == "openrouter"
+    assert agents[0].name == "openrouter:moonshotai/kimi-k2.7-code"
+
+
 def test_build_agents_direct_prefix_mixes_providers():
     # A `direct:` prefix routes one model through the direct Anthropic/OpenAI
     # adapter while the rest of the panel stays on BlackBox.

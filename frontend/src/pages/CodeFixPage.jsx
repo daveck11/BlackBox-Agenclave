@@ -186,7 +186,7 @@ export default function CodeFixPage() {
             <span className="switch-text">
               {live ? (
                 <>
-                  Live run, spends <strong>{EST_COST}</strong> in Blackbox credits
+                  Live run, spends <strong>{EST_COST}</strong> in provider credits
                 </>
               ) : (
                 <>Dry run, no API calls</>

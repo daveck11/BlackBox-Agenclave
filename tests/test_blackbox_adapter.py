@@ -89,3 +89,10 @@ async def test_missing_key_guarded():
     res = await agent.propose_patch(_task())
     assert not res.ok
     assert "BLACKBOX_API_KEY" in (res.error or "")
+
+
+async def test_openrouter_names_its_own_key():
+    agent = BlackBoxAgent("x/y", provider="openrouter", api_key="", api_base=BASE)
+    assert agent.name == "openrouter:x/y"
+    res = await agent.propose_patch(_task())
+    assert "OPENROUTER_API_KEY" in (res.error or "")

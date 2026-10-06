@@ -11,7 +11,7 @@ from fastapi import APIRouter, HTTPException
 
 from ...classifier.predict import ModelsNotTrained, TYPE_MODEL_PATH, predict_triage
 from ...classifier.recommend import recommend
-from ...config import settings
+from ...config import GATEWAY_PROVIDERS, settings
 from ..schemas import Recommendation, TriageRequest, TriageResponse
 
 logger = logging.getLogger("agenclave.api")
@@ -28,8 +28,8 @@ def health() -> dict:
     models_loaded = TYPE_MODEL_PATH.exists()
     # Whether live Stage 2 dispatch can work (a provider key is configured). The UI
     # hides the Live toggle when this is false (e.g. a public demo with no keys).
-    if settings.provider == "blackbox":
-        live_enabled = bool(settings.blackbox_api_key)
+    if settings.provider in GATEWAY_PROVIDERS:
+        live_enabled = bool(settings.gateway_api_key(settings.provider))
     else:
         live_enabled = bool(settings.anthropic_api_key or settings.openai_api_key)
     return {"status": "ok", "models_loaded": models_loaded, "live_enabled": live_enabled}

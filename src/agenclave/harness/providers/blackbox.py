@@ -1,12 +1,8 @@
-# BlackBox provider adapter. BlackBox's inference API is OpenAI-compatible,
-# so this is the OpenAI SDK pointed at their base URL with a bb_ key. With
-# AGENCLAVE_PROVIDER=blackbox every agent in the panel goes through BlackBox.
-#
-# Env to activate:
-#     AGENCLAVE_PROVIDER=blackbox
-#     AGENCLAVE_BLACKBOX_API_KEY=bb_...
-#     AGENCLAVE_BLACKBOX_API_BASE=<OpenAI-compatible root from their docs>
-#     AGENCLAVE_AGENT_MODELS=<comma-separated model ids>
+# Gateway adapter: the OpenAI SDK pointed at an OpenAI-compatible base URL.
+# Started as the BlackBox adapter; OpenRouter speaks the same protocol with
+# the same provider/model ids, so one class covers both. AGENCLAVE_PROVIDER
+# picks which, and the key + base come from config (BLACKBOX_API_KEY /
+# OPENROUTER_API_KEY, AGENCLAVE_<PROVIDER>_API_BASE).
 #
 # Same error contract as DirectAgent: propose_patch puts failures in
 # PatchResult.error instead of raising.
@@ -19,27 +15,31 @@ from .base import AGENT_SYSTEM_PROMPT, build_task_prompt, extract_diff
 
 
 class BlackBoxAgent(Agent):
-    # api_key / api_base default to settings; they're constructor args so
-    # tests can point at a mock endpoint. The client is built lazily, so
+    # api_key / api_base default to settings for `provider`; they're constructor
+    # args so tests can point at a mock endpoint. The client is built lazily, so
     # constructing an agent needs no key.
 
     def __init__(
         self,
         model: str,
         *,
+        provider: str = "blackbox",
         api_key: str | None = None,
         api_base: str | None = None,
         max_tokens: int = 4096,
     ) -> None:
         self.model = model
-        self.name = f"blackbox:{model}"  # unique within a dispatch; flags the source
-        self._api_key = api_key if api_key is not None else settings.blackbox_api_key
-        self._api_base = (api_base or settings.blackbox_api_base).rstrip("/")
+        self.provider = provider
+        self.name = f"{provider}:{model}"  # unique within a dispatch; flags the source
+        self._api_key = (
+            api_key if api_key is not None else settings.gateway_api_key(provider)
+        )
+        self._api_base = (api_base or settings.gateway_api_base(provider)).rstrip("/")
         self._max_tokens = max_tokens
         self._client = None
 
     def _get_client(self):
-        # Build (once) an OpenAI Async client pointed at BlackBox. Only reached
+        # Build (once) an OpenAI Async client pointed at the gateway. Only reached
         # when a key is present (propose_patch guards first), so api_key is set.
         if self._client is None:
             import openai  # lazy: avoid import cost / key lookup at module load
@@ -56,7 +56,10 @@ class BlackBoxAgent(Agent):
                 agent_name=self.name,
                 instance_id=task.instance_id,
                 patch="",
-                error="BLACKBOX_API_KEY not set; cannot call the BlackBox API",
+                error=(
+                    f"{self.provider.upper()}_API_KEY not set; cannot call the "
+                    f"{self.provider} API"
+                ),
             )
         try:
             client = self._get_client()
